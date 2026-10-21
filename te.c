@@ -37,6 +37,7 @@ clear;clang -pthread te.c -o t
 #define buffer_size 64*1024
 
 static char buffer_editor[buffer_size];
+static char nomearquivo[65]={0};
 static const int width = 80;
 static const int height= 30;
 static const int screen_size = width * height;
@@ -366,14 +367,12 @@ int thread_renderizacao(void *arg) {
 
 #include <stdio.h>
 
-int salvar_buffer(const char *nome_arquivo, const char *buffer, size_t tamanho) {
-    char nomearquivo[65]={0};
-    if( nome_arquivo == NULL ){
+int salvar_buffer( const char *buffer, size_t tamanho) {
+    
+    if( strlen(nomearquivo) == 0 ){
         ler_nome_arquivo(&nomearquivo[0], 64);
         if(strlen(nomearquivo) == 0)
             return -1;
-    }else{
-        strncpy(nomearquivo, nome_arquivo, sizeof(nomearquivo) - 1);
     }
     FILE *arquivo = fopen(nomearquivo, "w");
     if (arquivo == NULL) {
@@ -390,7 +389,6 @@ int salvar_buffer(const char *nome_arquivo, const char *buffer, size_t tamanho) 
 // Carrega o arquivo para o buffer usando POSIX I/O
 // Retorna a quantidade de bytes lidos ou -1 em caso de erro.
 ssize_t carregar_arquivo(const char *nome_arquivo, char *buffer, size_t tamanho_maximo) {
-    char nomearquivo[65]={0};
     if( nome_arquivo == NULL ){
         ler_nome_arquivo(&nomearquivo[0], 64);
         if(strlen(nomearquivo) == 0)
@@ -442,9 +440,11 @@ static void configurar_terminal(struct termios *origem) {
 static void restaurar_terminal(struct termios *origem) {
     tcsetattr(STDIN_FILENO, TCSANOW, origem);
 }
-int main(void) {
+int main(int argc, char **argv) {
     thrd_t t_render;
     unsigned char btecla[2];
+    
+    
     struct termios terminal_original;
 
     configurar_terminal(&terminal_original);
@@ -455,6 +455,22 @@ int main(void) {
     thrd_create(&t_render, thread_renderizacao, NULL);
     thrd_detach(t_render);
 
+    if( argc > 1 ){
+        strcpy(nomearquivo,argv[1]);
+            mover_cursor(0,30);
+            mtx_lock(&mutex_tela);
+            ssize_t n = carregar_arquivo(nomearquivo,buffer_editor,buffer_size);
+            if( n >= 0 ){
+                memset(buffer_editor+n,0x20,buffer_size-n);   // limpa sobras do arquivo anterior
+                max_size=n; janela=0; cursor_x=0; cursor_y=0;
+            }
+            text_changed = 1;
+            mtx_unlock(&mutex_tela);
+            cnd_signal(&cond_tela); 
+    }
+
+
+
     printf("[OS-68k] Editor iniciado. Digite algo (ESC para sair):\n");
     clrscr();
     // Loop real de leitura de teclado
@@ -463,7 +479,6 @@ int main(void) {
         btecla[0] = tecla;
         if( tecla == KEY_CTRLL ){
             mover_cursor(0,30);
-            printf ("Digite nome: ");
             mtx_lock(&mutex_tela);
             ssize_t n = carregar_arquivo(NULL,buffer_editor,buffer_size);
             if( n >= 0 ){
@@ -477,7 +492,8 @@ int main(void) {
         if( tecla == KEY_CTRLW ){
             mover_cursor(0,30);
             printf ("Salvando o program:%d",max_size);
-            salvar_buffer(NULL,buffer_editor,max_size);
+            salvar_buffer(buffer_editor,max_size);
+            clrscr();
             break;
         }    
         if( tecla == KEY_BS ){
